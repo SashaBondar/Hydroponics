@@ -12,22 +12,23 @@
 
 #define INTERVAL 1600
 #define PERIOD		        60
-#define COMPRESSOR_TIME   90
+#define COMPRESSOR_TIME   60
 #define CLAPAN_TIME       180
 
 #define COMPRESSOR_PIN    3
 #define CLAPAN_PIN        4
 #define WATER_LEVEL_PIN	  2
+#define LIGHT_PIN         5
 #define LIGHT_SENSOR_PIN  A0
 
-#define MIN_LUM           1
-#define MAX_LUM           3
+#define MIN_LUM           180
+#define MAX_LUM           300
 #define SUBMERSION_TIME   120
 #define DRAINING_TIME     180
 
 enum STATE
 {
-  COMPRESSOR_ON=0,  // включен компрессор, вода накачивается в трубу  t=90
+  COMPRESSOR_ON=0,  // включен компрессор, вода накачивается в трубу  t=60
   SUBMERSION=1,     // все выключено вода в трубе                     t=60
   CLAPAN_ON=2,      // включен клапан, вода стекает в бак             t=180
   DRAINING=3        // все выключено вода в баке                      t=k*1600
@@ -38,31 +39,27 @@ DS3231 Clock;
 
 // коэффициент расчета временных интервалов затоплений
 int k;
-uint32_t compressorOnTime;
-// время следующего затопления
-uint32_t submersionOnTime;
-// время следующего слива
-uint32_t clapanOnTime;
-uint32_t drainingOnTime;
-// текущий процесс - затопление true, слив false
-boolean isSubmersion;
+// время следующего действия
+uint32_t nextActionTime;
 // напряжение соответствующее освещенности на датчике света
 int lum;
 STATE state;
+
 void setup () {
   k=1;
   lum = 0;
-  isSubmersion = false; 
   Serial.begin(19200);
   Wire.begin();
+  // pin setup
   pinMode(COMPRESSOR_PIN,OUTPUT);
   pinMode(CLAPAN_PIN,OUTPUT);
+  pinMode(LIGHT_PIN,OUTPUT);
   pinMode(WATER_LEVEL_PIN, INPUT);
   pinMode(LIGHT_SENSOR_PIN, INPUT);
+  
   state = COMPRESSOR_ON;
   digitalWrite(COMPRESSOR_PIN, HIGH);
   digitalWrite(CLAPAN_PIN,LOW);
-
 //        Clock.setYear(18);
 //        Clock.setMonth(1);
 //  		Clock.setDate(22);
@@ -70,83 +67,196 @@ void setup () {
 //  		Clock.setMinute(55);
 //  		Clock.setDoW(1);
 //  		Clock.setClockMode(false);
-  compressorOnTime=RTC.now().unixtime();
-  submersionOnTime=compressorOnTime + COMPRESSOR_TIME;
-  clapanOnTime=submersionOnTime+PERIOD;
-  drainingOnTime=clapanOnTime+CLAPAN_TIME;
- // pinMode(SIGNAL_PIN, OUTPUT);
+  nextActionTime=RTC.now().unixtime()+COMPRESSOR_TIME;
   printTime(RTC.now());
   Serial.println("Compressor ON");
 }
 
 void loop () {
   DateTime now = RTC.now();
-  //printTime(now);
+  getK();
+  compressorClapanProcess(now);
+  lightProcess(now);
+  delay(1000);
+}
+
+/**
+ * Включать доп освещение утром и вечером в зависимости от текущего месяца (и дня)
+ */
+void lightProcess(DateTime now)
+{
+  byte hourMorningStart = 6;
+  byte hourMorningEnd = 7;
+  byte hourEveningStart = 20;
+  byte hourEveningEnd = 22;
+  switch(now.month())
+  {
+    case 1:
+      hourMorningStart = 5;  
+      hourMorningEnd = 7;
+      hourEveningStart = 17;
+      hourEveningEnd = 21;
+    break;
+    case 2:
+      hourMorningStart = 5;  
+      hourMorningEnd = 7;
+      hourEveningStart = 17;
+      hourEveningEnd = 22;
+    break;
+    case 3:
+      hourMorningStart = 5;  
+      hourMorningEnd = 7;
+      hourEveningStart = 18;
+      hourEveningEnd = 22;
+    break;
+    case 4:
+      hourMorningStart = 5;  
+      hourMorningEnd = 7;
+      hourEveningStart = 18;
+      hourEveningEnd = 22;
+    break;
+    case 5:
+      hourMorningStart = 5;  
+      hourMorningEnd = 6;
+      hourEveningStart = 19;
+      hourEveningEnd = 21;
+    break;
+    case 6:
+      hourMorningStart = 5;  
+      hourMorningEnd = 5;
+      hourEveningStart = 20;
+      hourEveningEnd = 21;
+    break;
+    case 7:
+      hourMorningStart = 5;  
+      hourMorningEnd = 5;
+      hourEveningStart = 21;
+      hourEveningEnd = 21;
+    break;
+    case 8:
+      hourMorningStart = 5;  
+      hourMorningEnd = 5;
+      hourEveningStart = 21;
+      hourEveningEnd = 21;
+    break;
+    case 9:
+      hourMorningStart = 5;  
+      hourMorningEnd = 6;
+      hourEveningStart = 20;
+      hourEveningEnd = 22;
+    break;
+    case 10:
+      hourMorningStart = 5;  
+      hourMorningEnd = 6;
+      hourEveningStart = 20;
+      hourEveningEnd = 22;
+    break;
+    case 11:
+      hourMorningStart = 5;  
+      hourMorningEnd = 7;
+      hourEveningStart = 18;
+      hourEveningEnd = 21;
+    break;
+    case 12:
+      hourMorningStart = 5;  
+      hourMorningEnd = 7;
+      hourEveningStart = 17;
+      hourEveningEnd = 21;
+    break;
+  }
+  if(hourMorningStart != hourMorningEnd && now.hour() >= hourMorningStart && now.hour() < hourMorningEnd)
+  {
+    if(digitalRead(LIGHT_PIN) == LOW)
+    {
+      digitalWrite(LIGHT_PIN,HIGH);
+    }
+  }
+  else if(hourEveningStart != hourEveningEnd && now.hour() >= hourEveningStart && now.hour() < hourEveningEnd )
+  {
+    if(digitalRead(LIGHT_PIN) == LOW)
+    {
+      digitalWrite(LIGHT_PIN,HIGH);
+    }
+  }
+  else
+  {
+    if(digitalRead(LIGHT_PIN) == HIGH)
+    {
+      digitalWrite(LIGHT_PIN,LOW);
+    }
+  }
+}
+
+void compressorClapanProcess(DateTime now)
+{
   uint32_t currTime = now.unixtime();
-  k = getK();
   switch(state)
   {
     case COMPRESSOR_ON:     
       // Проверить пора ли перейти в режим затопление
-      if (currTime >= submersionOnTime)
+      if (currTime >= nextActionTime)
       {
         printTime(now);
         Serial.println("Submersion started");
         // выключить компрессор и пересчитать время событий
         digitalWrite(COMPRESSOR_PIN, LOW);
-        compressorOnTime = currTime+PERIOD+CLAPAN_TIME+k*INTERVAL;
+        nextActionTime = currTime+PERIOD;
         state = SUBMERSION;
       }
       break;
     case SUBMERSION:
-      
-      if (currTime >= clapanOnTime)
+      if (currTime >= nextActionTime)
       {
         printTime(now);
         Serial.println("Clapan ON");
         // включить клапан, пересчитать время
         digitalWrite(CLAPAN_PIN, HIGH);
-        submersionOnTime = currTime+COMPRESSOR_TIME+CLAPAN_TIME +k*INTERVAL;
+        nextActionTime = currTime+CLAPAN_TIME;
         state = CLAPAN_ON;
       }
       break;
-    case CLAPAN_ON:
-      
-      if (currTime >= drainingOnTime)
+    case CLAPAN_ON:     
+      if (currTime >= nextActionTime)
       {
         printTime(now);
         Serial.println("Draining on");
         // выключить клапан и пересчитать время
         digitalWrite(CLAPAN_PIN, LOW);
-        clapanOnTime = currTime+PERIOD+COMPRESSOR_TIME+k*INTERVAL;
+        nextActionTime = currTime + k*INTERVAL;
         state = DRAINING;
       }
       break;
     case DRAINING:
-      
-      if (currTime >= compressorOnTime)
+      if (currTime >= nextActionTime)
       {
         printTime(now);
         Serial.println("Compressor ON");
         // включить компрессор и пересчитать время
         digitalWrite(COMPRESSOR_PIN, HIGH);
-        drainingOnTime = currTime+PERIOD+COMPRESSOR_TIME+CLAPAN_TIME;
+        nextActionTime = currTime+COMPRESSOR_TIME;
         state = COMPRESSOR_ON;
       }
       break;
   }
-  delay(1000);
 }
 
-int getK()
+void getK()
 {
-  int ret = 1;
+  int tmp = k;
   lum = analogRead(LIGHT_SENSOR_PIN);
   if (lum <= MIN_LUM)
   {
-    ret = 3;
+    k = 3;
   }
-  return ret;
+  else
+  {
+    k = 1;
+  }
+  if (k != tmp)
+  {
+    Serial.print("k = ");
+    Serial.println(k);
+  }
 }
 
 void printTime(DateTime now)
