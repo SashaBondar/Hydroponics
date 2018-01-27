@@ -43,11 +43,13 @@ void setup () {
             Serial.println(nextTimeDraining);
 //  Serial.flush();
   Wire.begin();
-  //		Clock.setDate(11);
-  //		Clock.setHour(7);
-  //		Clock.setMinute(31);
-  //		Clock.setDoW(4);
-  //		Clock.setClockMode(false);
+      Clock.setYear(18);
+      Clock.setMonth(1);
+  		Clock.setDate(21);
+  		Clock.setHour(16);
+  		Clock.setMinute(46);
+  		Clock.setDoW(6);
+  		Clock.setClockMode(false);
   pinMode(SIGNAL_PIN, OUTPUT);
 }
 
