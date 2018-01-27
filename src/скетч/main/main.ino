@@ -1,7 +1,7 @@
 /**
   Интервалы:
-   - время пауз между затоплентями k*30 мин = k*1600 сек
-   - время затопления 1 мин = 60 сек
+   - время пауз между затоплентями k*60 мин = k*3600 сек
+   - время затопления 10 мин = 600 сек
 
   k коэффициент, зависит от:
   - времени суток (1 днем, 3 ночью)
@@ -10,13 +10,15 @@
 #include <Wire.h>
 #include <DS3231.h>
 
-#define INTERVAL 1600
-#define PERIOD		        60
-#define COMPRESSOR_TIME   60
-#define CLAPAN_TIME       180
+#define INTERVAL          3000
+#define PERIOD		        600
+#define COMPRESSOR_TIME   80
+#define CLAPAN_TIME       600
+#define CLAPAN_TIME_SEC   600
 
 #define COMPRESSOR_PIN    3
 #define CLAPAN_PIN        4
+#define CLAPAN_PIN_SEC    6
 #define WATER_LEVEL_PIN	  2
 #define LIGHT_PIN         5
 #define LIGHT_SENSOR_PIN  A0
@@ -28,10 +30,12 @@
 
 enum STATE
 {
-  COMPRESSOR_ON=0,  // включен компрессор, вода накачивается в трубу  t=60
-  SUBMERSION=1,     // все выключено вода в трубе                     t=60
-  CLAPAN_ON=2,      // включен клапан, вода стекает в бак             t=180
-  DRAINING=3        // все выключено вода в баке                      t=k*1600
+  COMPRESSOR_ON=0,  // включен компрессор, вода накачивается в трубу  t=80
+  SUBMERSION=1,     // все выключено вода в верхней трубе             t=600
+  CLAPAN_ON=2,      // включен клапан, вода стекает в нижнюю трубу    t=600
+  SUBMERSION_SEC=3, // все выключено вода в нижней трубе              t=600
+  CLAPAN_SEC_ON=4,  // включен клапан 2, вода стекает в бак           t=600
+  DRAINING=5        // все выключено вода в баке                      t=k*1600
 };
 
 RTClib RTC;
@@ -53,6 +57,7 @@ void setup () {
   // pin setup
   pinMode(COMPRESSOR_PIN,OUTPUT);
   pinMode(CLAPAN_PIN,OUTPUT);
+  pinMode(CLAPAN_PIN_SEC,OUTPUT);
   pinMode(LIGHT_PIN,OUTPUT);
   pinMode(WATER_LEVEL_PIN, INPUT);
   pinMode(LIGHT_SENSOR_PIN, INPUT);
@@ -60,6 +65,7 @@ void setup () {
   state = COMPRESSOR_ON;
   digitalWrite(COMPRESSOR_PIN, HIGH);
   digitalWrite(CLAPAN_PIN,LOW);
+  digitalWrite(CLAPAN_PIN_SEC, LOW);
 //        Clock.setYear(18);
 //        Clock.setMonth(1);
 //  		Clock.setDate(22);
@@ -222,10 +228,33 @@ void compressorClapanProcess(DateTime now)
         Serial.println("Draining on");
         // выключить клапан и пересчитать время
         digitalWrite(CLAPAN_PIN, LOW);
+        nextActionTime = currTime + PERIOD;
+        state = SUBMERSION_SEC;
+      }
+      break;
+    case SUBMERSION_SEC:
+      if (currTime >= nextActionTime)
+      {
+        printTime(now);
+        Serial.println("Draining on");
+        // включить клапан 2 и пересчитать время
+        digitalWrite(CLAPAN_PIN_SEC, HIGH);
+        nextActionTime = currTime + CLAPAN_TIME_SEC;
+//        nextActionTime = currTime + k*INTERVAL;
+        state = CLAPAN_SEC_ON;
+      }
+      break;
+    case CLAPAN_SEC_ON:
+      if (currTime >= nextActionTime)
+      {
+        printTime(now);
+        Serial.println("Draining on");
+        // выключить клапан 2 и пересчитать время
+        digitalWrite(CLAPAN_PIN_SEC, LOW);
         nextActionTime = currTime + k*INTERVAL;
         state = DRAINING;
       }
-      break;
+      break;  
     case DRAINING:
       if (currTime >= nextActionTime)
       {
