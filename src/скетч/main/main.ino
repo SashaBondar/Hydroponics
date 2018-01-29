@@ -10,21 +10,19 @@
 #include <Wire.h>
 #include <DS3231.h>
 
-#define INTERVAL 1600
-#define PERIOD		        60
+#define INTERVAL 3600
+#define PERIOD            600
 #define COMPRESSOR_TIME   60
-#define CLAPAN_TIME       180
+#define CLAPAN_TIME       600
 
 #define COMPRESSOR_PIN    3
 #define CLAPAN_PIN        4
-#define WATER_LEVEL_PIN	  2
-#define LIGHT_PIN         5
+#define WATER_LEVEL_PIN   2
+#define LIGHT_PIN         6
 #define LIGHT_SENSOR_PIN  A0
 
 #define MIN_LUM           180
 #define MAX_LUM           300
-#define SUBMERSION_TIME   120
-#define DRAINING_TIME     180
 
 enum STATE
 {
@@ -32,6 +30,12 @@ enum STATE
   SUBMERSION=1,     // все выключено вода в трубе                     t=60
   CLAPAN_ON=2,      // включен клапан, вода стекает в бак             t=180
   DRAINING=3        // все выключено вода в баке                      t=k*1600
+};
+
+enum LED_STATE
+{
+  LED_ON=1,
+  LED_OFF=0  
 };
 
 RTClib RTC;
@@ -44,6 +48,7 @@ uint32_t nextActionTime;
 // напряжение соответствующее освещенности на датчике света
 int lum;
 STATE state;
+LED_STATE ledState;
 
 void setup () {
   k=1;
@@ -60,13 +65,16 @@ void setup () {
   state = COMPRESSOR_ON;
   digitalWrite(COMPRESSOR_PIN, HIGH);
   digitalWrite(CLAPAN_PIN,LOW);
+  digitalWrite(LIGHT_PIN,HIGH);
+  ledState=LED_OFF;
+  
 //        Clock.setYear(18);
 //        Clock.setMonth(1);
-//  		Clock.setDate(22);
-//  		Clock.setHour(6);
-//  		Clock.setMinute(55);
-//  		Clock.setDoW(1);
-//  		Clock.setClockMode(false);
+//      Clock.setDate(22);
+//      Clock.setHour(6);
+//      Clock.setMinute(55);
+//      Clock.setDoW(1);
+//      Clock.setClockMode(false);
   nextActionTime=RTC.now().unixtime()+COMPRESSOR_TIME;
   printTime(RTC.now());
   Serial.println("Compressor ON");
@@ -166,23 +174,29 @@ void lightProcess(DateTime now)
   }
   if(hourMorningStart != hourMorningEnd && now.hour() >= hourMorningStart && now.hour() < hourMorningEnd)
   {
-    if(digitalRead(LIGHT_PIN) == LOW)
+    if(ledState == LED_OFF)
     {
-      digitalWrite(LIGHT_PIN,HIGH);
+      Serial.println("Morning light ON");
+      digitalWrite(LIGHT_PIN,LOW);
+      ledState = LED_ON;
     }
   }
   else if(hourEveningStart != hourEveningEnd && now.hour() >= hourEveningStart && now.hour() < hourEveningEnd )
   {
-    if(digitalRead(LIGHT_PIN) == LOW)
+    if(ledState == LED_OFF)
     {
-      digitalWrite(LIGHT_PIN,HIGH);
+      Serial.println("Evening light ON");
+      digitalWrite(LIGHT_PIN,LOW);
+      ledState = LED_ON;
     }
   }
   else
   {
-    if(digitalRead(LIGHT_PIN) == HIGH)
+    if(ledState == LED_ON)
     {
-      digitalWrite(LIGHT_PIN,LOW);
+      Serial.println("Light OFF");
+      digitalWrite(LIGHT_PIN,HIGH);
+      ledState = LED_OFF;
     }
   }
 }
