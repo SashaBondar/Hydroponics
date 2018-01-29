@@ -20,6 +20,7 @@
 #define WATER_LEVEL_PIN	  2
 #define LIGHT_PIN         5
 #define LIGHT_SENSOR_PIN  A0
+#define SOIL_PIN          A1
 
 #define MIN_LUM           180
 #define MAX_LUM           300
@@ -38,7 +39,7 @@ RTClib RTC;
 DS3231 Clock;
 
 // коэффициент расчета временных интервалов затоплений
-int k;
+float k;
 // время следующего действия
 uint32_t nextActionTime;
 // напряжение соответствующее освещенности на датчике света
@@ -242,7 +243,7 @@ void compressorClapanProcess(DateTime now)
 
 void getK()
 {
-  int tmp = k;
+  float tmp = k;
   lum = analogRead(LIGHT_SENSOR_PIN);
   if (lum <= MIN_LUM)
   {
@@ -252,6 +253,8 @@ void getK()
   {
     k = 1;
   }
+  int soilVal = analogRead(SOIL_PIN);
+  k = k*((1168-0,8*soilVal)/640);
   if (k != tmp)
   {
     Serial.print("k = ");
