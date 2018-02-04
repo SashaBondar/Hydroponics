@@ -10,17 +10,16 @@
 #include <Wire.h>
 #include <DS3231.h>
 
-#define COMPRESSOR_PIN    3
-#define CLAPAN_PIN        4
-#define CLAPAN_PIN_SEC    6
-#define WATER_LEVEL_PIN	  2
-#define LIGHT_PIN         5
-#define LIGHT_SENSOR_PIN  A0
+#define COMPRESSOR_PIN      3
+#define CLAPAN_PIN          5
+#define COMPRESSOR_PIN_TWO  4
+#define WATER_LEVEL_PIN	    2
+#define LIGHT_PIN           6
+#define LIGHT_SENSOR_PIN    A0
+#define SOIL_PIN            A1
 
 #define MIN_LUM           180
 #define MAX_LUM           300
-#define SUBMERSION_TIME   120
-#define DRAINING_TIME     180
 
 enum STATE
 {
@@ -32,10 +31,10 @@ enum STATE
   PAUSE=5           // все выключено вода в баке                      t=k*3000
 };
 
-static inline int *timeFromState(enum STATE state)
+static inline int timeFromState(enum STATE state)
 {
-//  static const int *times[] = { 7, 60, 7, 60, 180, 50 };
-  static const int *times[] = { 70, 600, 70, 600, 1800, 500 };
+//  static const int times[] = { 7, 60, 7, 60, 180, 50 };
+  static const int times[] = { 80, 600, 80, 600, 1200, 1100 };
 
     return times[state];
 }
@@ -54,16 +53,23 @@ static inline char *stringFromState(enum STATE state)
     return strings[state];
 }
 
+enum LED_STATE
+{
+  LED_ON=1,
+  LED_OFF=0  
+};
+
 RTClib RTC;
 DS3231 Clock;
 
 // коэффициент расчета временных интервалов затоплений
-int k;
+float k;
 // время следующего действия
 uint32_t nextActionTime;
 // напряжение соответствующее освещенности на датчике света
 int lum;
 STATE state;
+LED_STATE ledState;
 
 void setup () {
   k=1;
@@ -73,25 +79,35 @@ void setup () {
   // pin setup
   pinMode(COMPRESSOR_PIN,OUTPUT);
   pinMode(CLAPAN_PIN,OUTPUT);
-  pinMode(CLAPAN_PIN_SEC,OUTPUT);
+  pinMode(COMPRESSOR_PIN_TWO,OUTPUT);
   pinMode(LIGHT_PIN,OUTPUT);
   pinMode(WATER_LEVEL_PIN, INPUT);
   pinMode(LIGHT_SENSOR_PIN, INPUT);
   
   state = COMPRESSOR_ONE;
   digitalWrite(COMPRESSOR_PIN, HIGH);
-  digitalWrite(CLAPAN_PIN,LOW);
-  digitalWrite(CLAPAN_PIN_SEC, LOW);
+  digitalWrite(CLAPAN_PIN,HIGH);
+
+  digitalWrite(COMPRESSOR_PIN_TWO, LOW);
+  
+  nextActionTime=RTC.now().unixtime()+timeFromState(COMPRESSOR_ONE);
+  digitalWrite(LIGHT_PIN,HIGH);
+  ledState=LED_OFF;
+  
 //        Clock.setYear(18);
 //        Clock.setMonth(1);
-//  		Clock.setDate(22);
-//  		Clock.setHour(6);
-//  		Clock.setMinute(55);
-//  		Clock.setDoW(1);
-//  		Clock.setClockMode(false);
-  nextActionTime=RTC.now().unixtime()+timeFromState(COMPRESSOR_ONE);
+//      Clock.setDate(22);
+//      Clock.setHour(6);
+//      Clock.setMinute(55);
+//      Clock.setDoW(1);
+//      Clock.setClockMode(false);
   printTime(RTC.now());
-  Serial.println("Compressor ON");
+  Serial.println((long)timeFromState(COMPRESSOR_ONE));
+  Serial.print("Current unix time: ");
+  Serial.println(RTC.now().unixtime());
+  Serial.print("Next action time - ");
+  Serial.println(nextActionTime);
+  Serial.println(stringFromState(state));
 }
 
 void loop () {
@@ -188,23 +204,29 @@ void lightProcess(DateTime now)
   }
   if(hourMorningStart != hourMorningEnd && now.hour() >= hourMorningStart && now.hour() < hourMorningEnd)
   {
-    if(digitalRead(LIGHT_PIN) == LOW)
+    if(ledState == LED_OFF)
     {
-      digitalWrite(LIGHT_PIN,HIGH);
+      Serial.println("Morning light ON");
+      digitalWrite(LIGHT_PIN,LOW);
+      ledState = LED_ON;
     }
   }
   else if(hourEveningStart != hourEveningEnd && now.hour() >= hourEveningStart && now.hour() < hourEveningEnd )
   {
-    if(digitalRead(LIGHT_PIN) == LOW)
+    if(ledState == LED_OFF)
     {
-      digitalWrite(LIGHT_PIN,HIGH);
+      Serial.println("Evening light ON");
+      digitalWrite(LIGHT_PIN,LOW);
+      ledState = LED_ON;
     }
   }
   else
   {
-    if(digitalRead(LIGHT_PIN) == HIGH)
+    if(ledState == LED_ON)
     {
-      digitalWrite(LIGHT_PIN,LOW);
+      Serial.println("Light OFF");
+      digitalWrite(LIGHT_PIN,HIGH);
+      ledState = LED_OFF;
     }
   }
 }
@@ -212,7 +234,7 @@ void lightProcess(DateTime now)
 void compressorClapanProcess(DateTime now)
 {
   uint32_t currTime = now.unixtime();
-  if(currTime >= nextActionTime)
+  if(currTime >= nextActionTime) 
   {
     printTime(now);
     state = nextState(state);
@@ -227,29 +249,29 @@ void processState(STATE state)
   switch(state)
   {
     case COMPRESSOR_ONE:     
-        digitalWrite(COMPRESSOR_PIN, LOW);
+        digitalWrite(COMPRESSOR_PIN, HIGH);
       break;
     case SUBMERSION_ONE:
-        digitalWrite(CLAPAN_PIN, HIGH);
+        digitalWrite(COMPRESSOR_PIN, LOW);
       break;
     case COMPRESSOR_TWO:
-        digitalWrite(CLAPAN_PIN, LOW);
+        digitalWrite(COMPRESSOR_PIN_TWO, HIGH);
       break;
     case SUBMERSION_TWO:
-        digitalWrite(CLAPAN_PIN_SEC, HIGH);
+        digitalWrite(COMPRESSOR_PIN_TWO, LOW);
       break;
     case CLAPAN:
-        digitalWrite(CLAPAN_PIN_SEC, LOW);
+        digitalWrite(CLAPAN_PIN, LOW);
         break;  
     case PAUSE:
-        digitalWrite(COMPRESSOR_PIN, HIGH);
+        digitalWrite(CLAPAN_PIN, HIGH);
         break;
   }
 }
 
 void getK()
 {
-  int tmp = k;
+  float tmp = k;
   lum = analogRead(LIGHT_SENSOR_PIN);
   if (lum <= MIN_LUM)
   {
@@ -259,11 +281,14 @@ void getK()
   {
     k = 1;
   }
-  if (k != tmp)
-  {
-    Serial.print("k = ");
-    Serial.println(k);
-  }
+  int soilVal = analogRead(SOIL_PIN);
+  Serial.println(soilVal);
+//  k = k*((1168-0,8*soilVal)/640);
+//  if (k != tmp)
+//  {
+//    Serial.print("k = ");
+//    Serial.println(k);
+//  }
 }
 
 void printTime(DateTime now)
