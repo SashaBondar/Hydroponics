@@ -10,12 +10,6 @@
 #include <Wire.h>
 #include <DS3231.h>
 
-#define INTERVAL          3000
-#define PERIOD		        600
-#define COMPRESSOR_TIME   80
-#define CLAPAN_TIME       600
-#define CLAPAN_TIME_SEC   600
-
 #define COMPRESSOR_PIN    3
 #define CLAPAN_PIN        4
 #define CLAPAN_PIN_SEC    6
@@ -30,13 +24,35 @@
 
 enum STATE
 {
-  COMPRESSOR_ON=0,  // включен компрессор, вода накачивается в трубу  t=80
-  SUBMERSION=1,     // все выключено вода в верхней трубе             t=600
-  CLAPAN_ON=2,      // включен клапан, вода стекает в нижнюю трубу    t=600
-  SUBMERSION_SEC=3, // все выключено вода в нижней трубе              t=600
-  CLAPAN_SEC_ON=4,  // включен клапан 2, вода стекает в бак           t=600
-  DRAINING=5        // все выключено вода в баке                      t=k*1600
+  COMPRESSOR_ONE=0,  // включен компрессор, вода накачивается в трубу  t=80
+  SUBMERSION_ONE=1,     // все выключено вода в верхней трубе             t=600
+  COMPRESSOR_TWO=2,      // включен клапан, вода стекает в нижнюю трубу    t=600
+  SUBMERSION_TWO=3, // все выключено вода в нижней трубе              t=600
+  CLAPAN=4,         // включен клапан 2, вода стекает в бак           t=600
+  PAUSE=5           // все выключено вода в баке                      t=k*3000
 };
+
+static inline int *timeFromState(enum STATE state)
+{
+//  static const int *times[] = { 7, 60, 7, 60, 180, 50 };
+  static const int *times[] = { 70, 600, 70, 600, 1800, 500 };
+
+    return times[state];
+}
+
+static inline STATE nextState(enum STATE state)
+{
+  static const STATE states[] = { SUBMERSION_ONE, COMPRESSOR_TWO, SUBMERSION_TWO, CLAPAN, PAUSE, COMPRESSOR_ONE };
+
+    return states[state];
+}
+
+static inline char *stringFromState(enum STATE state)
+{
+    static const char *strings[] = { "Компрессор 1", "Затопление трубы 1", "Компрессор 2", "Затопление трубы 2", "Клапан", "Тайм-Аут"  };
+
+    return strings[state];
+}
 
 RTClib RTC;
 DS3231 Clock;
@@ -62,7 +78,7 @@ void setup () {
   pinMode(WATER_LEVEL_PIN, INPUT);
   pinMode(LIGHT_SENSOR_PIN, INPUT);
   
-  state = COMPRESSOR_ON;
+  state = COMPRESSOR_ONE;
   digitalWrite(COMPRESSOR_PIN, HIGH);
   digitalWrite(CLAPAN_PIN,LOW);
   digitalWrite(CLAPAN_PIN_SEC, LOW);
@@ -73,7 +89,7 @@ void setup () {
 //  		Clock.setMinute(55);
 //  		Clock.setDoW(1);
 //  		Clock.setClockMode(false);
-  nextActionTime=RTC.now().unixtime()+COMPRESSOR_TIME;
+  nextActionTime=RTC.now().unixtime()+timeFromState(COMPRESSOR_ONE);
   printTime(RTC.now());
   Serial.println("Compressor ON");
 }
@@ -196,76 +212,38 @@ void lightProcess(DateTime now)
 void compressorClapanProcess(DateTime now)
 {
   uint32_t currTime = now.unixtime();
+  if(currTime >= nextActionTime)
+  {
+    printTime(now);
+    state = nextState(state);
+    Serial.println(stringFromState(state));
+    nextActionTime = currTime + timeFromState(state);
+    processState(state);
+  }
+}
+
+void processState(STATE state)
+{
   switch(state)
   {
-    case COMPRESSOR_ON:     
-      // Проверить пора ли перейти в режим затопление
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Submersion started");
-        // выключить компрессор и пересчитать время событий
+    case COMPRESSOR_ONE:     
         digitalWrite(COMPRESSOR_PIN, LOW);
-        nextActionTime = currTime+PERIOD;
-        state = SUBMERSION;
-      }
       break;
-    case SUBMERSION:
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Clapan ON");
-        // включить клапан, пересчитать время
+    case SUBMERSION_ONE:
         digitalWrite(CLAPAN_PIN, HIGH);
-        nextActionTime = currTime+CLAPAN_TIME;
-        state = CLAPAN_ON;
-      }
       break;
-    case CLAPAN_ON:     
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Draining on");
-        // выключить клапан и пересчитать время
+    case COMPRESSOR_TWO:
         digitalWrite(CLAPAN_PIN, LOW);
-        nextActionTime = currTime + PERIOD;
-        state = SUBMERSION_SEC;
-      }
       break;
-    case SUBMERSION_SEC:
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Draining on");
-        // включить клапан 2 и пересчитать время
+    case SUBMERSION_TWO:
         digitalWrite(CLAPAN_PIN_SEC, HIGH);
-        nextActionTime = currTime + CLAPAN_TIME_SEC;
-//        nextActionTime = currTime + k*INTERVAL;
-        state = CLAPAN_SEC_ON;
-      }
       break;
-    case CLAPAN_SEC_ON:
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Draining on");
-        // выключить клапан 2 и пересчитать время
+    case CLAPAN:
         digitalWrite(CLAPAN_PIN_SEC, LOW);
-        nextActionTime = currTime + k*INTERVAL;
-        state = DRAINING;
-      }
-      break;  
-    case DRAINING:
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Compressor ON");
-        // включить компрессор и пересчитать время
+        break;  
+    case PAUSE:
         digitalWrite(COMPRESSOR_PIN, HIGH);
-        nextActionTime = currTime+COMPRESSOR_TIME;
-        state = COMPRESSOR_ON;
-      }
-      break;
+        break;
   }
 }
 
