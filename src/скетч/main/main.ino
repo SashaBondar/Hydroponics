@@ -34,7 +34,7 @@ enum STATE
 static inline int timeFromState(enum STATE state)
 {
 //  static const int times[] = { 7, 60, 7, 60, 180, 50 };
-  static const int times[] = { 80, 600, 80, 600, 1200, 1100 };
+  static const int times[] = { 80, 600, 80, 600, 1200, 2000 };
 
     return times[state];
 }
@@ -283,12 +283,21 @@ void getK()
   }
   int soilVal = analogRead(SOIL_PIN);
   Serial.println(soilVal);
+  if(soilVal<=200)
+  {
+    k=k+2;
+  }
+  else if(soilVal<=500 && soilVal>200)
+  {
+    k=k+1;
+  }
+  
 //  k = k*((1168-0,8*soilVal)/640);
 //  if (k != tmp)
-//  {
-//    Serial.print("k = ");
-//    Serial.println(k);
-//  }
+  {
+    Serial.print("k = ");
+    Serial.println(k);
+  }
 }
 
 void printTime(DateTime now)
