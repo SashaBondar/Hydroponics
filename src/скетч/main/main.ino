@@ -1,7 +1,7 @@
 /**
   Интервалы:
-   - время пауз между затоплентями k*30 мин = k*1600 сек
-   - время затопления 1 мин = 60 сек
+   - время пауз между затоплентями k*60 мин = k*3600 сек
+   - время затопления 10 мин = 600 сек
 
   k коэффициент, зависит от:
   - времени суток (1 днем, 3 ночью)
@@ -10,28 +10,48 @@
 #include <Wire.h>
 #include <DS3231.h>
 
-#define INTERVAL 3600
-#define PERIOD            600
-#define COMPRESSOR_TIME   60
-#define CLAPAN_TIME       600
-
-#define COMPRESSOR_PIN    3
-#define CLAPAN_PIN        4
-#define WATER_LEVEL_PIN   2
-#define LIGHT_PIN         6
-#define LIGHT_SENSOR_PIN  A0
-#define SOIL_PIN          A1
+#define COMPRESSOR_PIN      3
+#define CLAPAN_PIN          5
+#define COMPRESSOR_PIN_TWO  4
+#define WATER_LEVEL_PIN	    2
+#define LIGHT_PIN           6
+#define LIGHT_SENSOR_PIN    A0
+#define SOIL_PIN            A1
 
 #define MIN_LUM           180
 #define MAX_LUM           300
 
 enum STATE
 {
-  COMPRESSOR_ON=0,  // включен компрессор, вода накачивается в трубу  t=60
-  SUBMERSION=1,     // все выключено вода в трубе                     t=60
-  CLAPAN_ON=2,      // включен клапан, вода стекает в бак             t=180
-  DRAINING=3        // все выключено вода в баке                      t=k*1600
+  COMPRESSOR_ONE=0,  // включен компрессор, вода накачивается в трубу  t=80
+  SUBMERSION_ONE=1,     // все выключено вода в верхней трубе             t=600
+  COMPRESSOR_TWO=2,      // включен клапан, вода стекает в нижнюю трубу    t=600
+  SUBMERSION_TWO=3, // все выключено вода в нижней трубе              t=600
+  CLAPAN=4,         // включен клапан 2, вода стекает в бак           t=600
+  PAUSE=5           // все выключено вода в баке                      t=k*3000
 };
+
+static inline int timeFromState(enum STATE state)
+{
+//  static const int times[] = { 7, 60, 7, 60, 180, 50 };
+  static const int times[] = { 80, 600, 80, 600, 1200, 2000 };
+
+    return times[state];
+}
+
+static inline STATE nextState(enum STATE state)
+{
+  static const STATE states[] = { SUBMERSION_ONE, COMPRESSOR_TWO, SUBMERSION_TWO, CLAPAN, PAUSE, COMPRESSOR_ONE };
+
+    return states[state];
+}
+
+static inline char *stringFromState(enum STATE state)
+{
+    static const char *strings[] = { "Компрессор 1", "Затопление трубы 1", "Компрессор 2", "Затопление трубы 2", "Клапан", "Тайм-Аут"  };
+
+    return strings[state];
+}
 
 enum LED_STATE
 {
@@ -59,13 +79,18 @@ void setup () {
   // pin setup
   pinMode(COMPRESSOR_PIN,OUTPUT);
   pinMode(CLAPAN_PIN,OUTPUT);
+  pinMode(COMPRESSOR_PIN_TWO,OUTPUT);
   pinMode(LIGHT_PIN,OUTPUT);
   pinMode(WATER_LEVEL_PIN, INPUT);
   pinMode(LIGHT_SENSOR_PIN, INPUT);
   
-  state = COMPRESSOR_ON;
+  state = COMPRESSOR_ONE;
   digitalWrite(COMPRESSOR_PIN, HIGH);
-  digitalWrite(CLAPAN_PIN,LOW);
+  digitalWrite(CLAPAN_PIN,HIGH);
+
+  digitalWrite(COMPRESSOR_PIN_TWO, LOW);
+  
+  nextActionTime=RTC.now().unixtime()+timeFromState(COMPRESSOR_ONE);
   digitalWrite(LIGHT_PIN,HIGH);
   ledState=LED_OFF;
   
@@ -76,9 +101,13 @@ void setup () {
 //      Clock.setMinute(55);
 //      Clock.setDoW(1);
 //      Clock.setClockMode(false);
-  nextActionTime=RTC.now().unixtime()+COMPRESSOR_TIME;
   printTime(RTC.now());
-  Serial.println("Compressor ON");
+  Serial.println((long)timeFromState(COMPRESSOR_ONE));
+  Serial.print("Current unix time: ");
+  Serial.println(RTC.now().unixtime());
+  Serial.print("Next action time - ");
+  Serial.println(nextActionTime);
+  Serial.println(stringFromState(state));
 }
 
 void loop () {
@@ -205,53 +234,38 @@ void lightProcess(DateTime now)
 void compressorClapanProcess(DateTime now)
 {
   uint32_t currTime = now.unixtime();
+  if(currTime >= nextActionTime) 
+  {
+    printTime(now);
+    state = nextState(state);
+    Serial.println(stringFromState(state));
+    nextActionTime = currTime + timeFromState(state);
+    processState(state);
+  }
+}
+
+void processState(STATE state)
+{
   switch(state)
   {
-    case COMPRESSOR_ON:     
-      // Проверить пора ли перейти в режим затопление
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Submersion started");
-        // выключить компрессор и пересчитать время событий
-        digitalWrite(COMPRESSOR_PIN, LOW);
-        nextActionTime = currTime+PERIOD;
-        state = SUBMERSION;
-      }
-      break;
-    case SUBMERSION:
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Clapan ON");
-        // включить клапан, пересчитать время
-        digitalWrite(CLAPAN_PIN, HIGH);
-        nextActionTime = currTime+CLAPAN_TIME;
-        state = CLAPAN_ON;
-      }
-      break;
-    case CLAPAN_ON:     
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Draining on");
-        // выключить клапан и пересчитать время
-        digitalWrite(CLAPAN_PIN, LOW);
-        nextActionTime = currTime + k*INTERVAL;
-        state = DRAINING;
-      }
-      break;
-    case DRAINING:
-      if (currTime >= nextActionTime)
-      {
-        printTime(now);
-        Serial.println("Compressor ON");
-        // включить компрессор и пересчитать время
+    case COMPRESSOR_ONE:     
         digitalWrite(COMPRESSOR_PIN, HIGH);
-        nextActionTime = currTime+COMPRESSOR_TIME;
-        state = COMPRESSOR_ON;
-      }
       break;
+    case SUBMERSION_ONE:
+        digitalWrite(COMPRESSOR_PIN, LOW);
+      break;
+    case COMPRESSOR_TWO:
+        digitalWrite(COMPRESSOR_PIN_TWO, HIGH);
+      break;
+    case SUBMERSION_TWO:
+        digitalWrite(COMPRESSOR_PIN_TWO, LOW);
+      break;
+    case CLAPAN:
+        digitalWrite(CLAPAN_PIN, LOW);
+        break;  
+    case PAUSE:
+        digitalWrite(CLAPAN_PIN, HIGH);
+        break;
   }
 }
 
@@ -268,8 +282,18 @@ void getK()
     k = 1;
   }
   int soilVal = analogRead(SOIL_PIN);
-  k = k*((1168-0,8*soilVal)/640);
-  if (k != tmp)
+  Serial.println(soilVal);
+  if(soilVal<=200)
+  {
+    k=k+2;
+  }
+  else if(soilVal<=500 && soilVal>200)
+  {
+    k=k+1;
+  }
+  
+//  k = k*((1168-0,8*soilVal)/640);
+//  if (k != tmp)
   {
     Serial.print("k = ");
     Serial.println(k);
