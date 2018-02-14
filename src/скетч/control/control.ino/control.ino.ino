@@ -39,11 +39,10 @@
  */
  
 #include "VirtuinoEsp8266_WebServer.h"
-
-
-
 // Code to use SoftwareSerial
 #include <SoftwareSerial.h>
+#define SensorPin A3            //pH meter Analog output to Arduino Analog Input 2
+#define Offset 0.00            //deviation compensate
 SoftwareSerial espSerial =  SoftwareSerial(2,3);      // arduino RX pin=2  arduino TX pin=3    connect the arduino RX pin to esp8266 module TX pin   -  connect the arduino TX pin to esp8266 module RX pin
 VirtuinoEsp8266_WebServer virtuino(espSerial, 9600);   // Your esp8266 device's speed is probably at 115200. For this reason use the test code to change the baud rate to 9600
                                                       // SoftwareSerial doesn't work at 115200 
@@ -59,6 +58,8 @@ VirtuinoEsp8266_WebServer virtuino(espSerial, 9600);   // Your esp8266 device's 
 //================================================================== setup
 //==================================================================
 //==================================================================
+int phVol;
+float phVal;
 void setup() 
 {
   virtuino.DEBUG=true;                                            // set this value TRUE to enable the serial monitor status.It is neccesary to get your esp8266 local ip
@@ -95,7 +96,14 @@ void setup()
 
 void loop(){
    virtuino.run();           //  necessary command to communicate with Virtuino android app
-   
+   phVol = analogRead(SensorPin);
+   double voltage = (5 * phVol)/ 1024.0;
+   phVal = 3.5 * voltage + Offset;
+   Serial.print("Voltage:");
+   Serial.print(voltage, 3);
+   Serial.print(" - phVal:");
+   Serial.println(phVal,2);
+   delay(1000);
     //------ enter your loop code below here
     //------ avoid to use delay() function in your code. Use the command virtuino.vDelay() instead of delay()
 
