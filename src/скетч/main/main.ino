@@ -7,19 +7,44 @@
   - времени суток (1 днем, 3 ночью)
   - влажности воздуха и почвы ( значения определить )
 */
+#include <VirtuinoEsp8266_WebServer.h>
+#include <SoftwareSerial.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include <Wire.h>
 #include <DS3231.h>
 
+#define WATER_LEVEL_PIN     2
+
 #define COMPRESSOR_PIN      3
-#define CLAPAN_PIN          5
 #define COMPRESSOR_PIN_TWO  4
-#define WATER_LEVEL_PIN	    2
+#define CLAPAN_PIN          5
 #define LIGHT_PIN           6
+
+#define SENSOR_TEMP         8
 #define LIGHT_SENSOR_PIN    A0
 #define SOIL_PIN            A1
+#define SENSOR_PH           A2
 
 #define MIN_LUM           180
 #define MAX_LUM           300
+#define OFFSET            0.00
+
+/** 
+ * arduino RX pin=9  arduino TX pin=10 
+ * connect the arduino RX pin to esp8266 module TX pin     
+ * connect the arduino TX pin to esp8266 module RX pin
+ */    
+SoftwareSerial espSerial =  SoftwareSerial(9,10);
+/**                                                       
+ * Your esp8266 device's speed is probably at 115200. 
+ * For this reason use the test code to change the baud rate to 9600                                                       
+ * SoftwareSerial doesn't work at 115200 
+ */
+VirtuinoEsp8266_WebServer virtuino(espSerial, 9600);    
+                                                       
+OneWire ds(SENSOR_TEMP); 
+DallasTemperature sensors(&ds);
 
 enum STATE
 {
@@ -34,7 +59,7 @@ enum STATE
 static inline int timeFromState(enum STATE state)
 {
 //  static const int times[] = { 7, 60, 7, 60, 180, 50 };
-  static const int times[] = { 80, 600, 80, 600, 1200, 2000 };
+  static const int times[] = { 80, 600, 80, 600, 1200, 3000 };
 
     return times[state];
 }
@@ -71,10 +96,29 @@ int lum;
 STATE state;
 LED_STATE ledState;
 
+int phVol;
+float phVal;
+
 void setup () {
+  virtuino.DEBUG=true;
   k=1;
   lum = 0;
-  Serial.begin(19200);
+  Serial.begin(9600);
+  espSerial.begin(9600);
+  /**
+   * Set your home wifi router SSID and PASSWORD. ESP8266 will connect to Internet. Port=8000
+   */
+  virtuino.connectESP8266_toInternet("ASUS_60_2G","kir12bo8",8000);
+  /**  
+   * Set a local ip. Forward port 80 to this IP on your router
+   */
+  virtuino.esp8266_setIP(192,168,1,135);                          
+  /**
+   * Enable this line to create a wifi local netrork using ESP8266 as access point
+   */
+  virtuino.createLocalESP8266_wifiServer("ESP8266","1234",8000,2);
+  virtuino.password="1234";
+  sensors.begin();
   Wire.begin();
   // pin setup
   pinMode(COMPRESSOR_PIN,OUTPUT);
@@ -85,13 +129,14 @@ void setup () {
   pinMode(LIGHT_SENSOR_PIN, INPUT);
   
   state = COMPRESSOR_ONE;
-  digitalWrite(COMPRESSOR_PIN, HIGH);
+  digitalWrite(COMPRESSOR_PIN, LOW);
+  digitalWrite(COMPRESSOR_PIN_TWO, HIGH);
   digitalWrite(CLAPAN_PIN,HIGH);
-
-  digitalWrite(COMPRESSOR_PIN_TWO, LOW);
+  digitalWrite(LIGHT_PIN,HIGH);
+  
   
   nextActionTime=RTC.now().unixtime()+timeFromState(COMPRESSOR_ONE);
-  digitalWrite(LIGHT_PIN,HIGH);
+  
   ledState=LED_OFF;
   
 //        Clock.setYear(18);
@@ -111,11 +156,13 @@ void setup () {
 }
 
 void loop () {
+  virtuino.run();
   DateTime now = RTC.now();
   getK();
   compressorClapanProcess(now);
   lightProcess(now);
-  delay(1000);
+  getTemperature();
+  virtuino.vDelay(1000);
 }
 
 /**
@@ -249,16 +296,16 @@ void processState(STATE state)
   switch(state)
   {
     case COMPRESSOR_ONE:     
-        digitalWrite(COMPRESSOR_PIN, HIGH);
-      break;
-    case SUBMERSION_ONE:
         digitalWrite(COMPRESSOR_PIN, LOW);
       break;
+    case SUBMERSION_ONE:
+        digitalWrite(COMPRESSOR_PIN, HIGH);
+      break;
     case COMPRESSOR_TWO:
-        digitalWrite(COMPRESSOR_PIN_TWO, HIGH);
+        digitalWrite(COMPRESSOR_PIN_TWO, LOW);
       break;
     case SUBMERSION_TWO:
-        digitalWrite(COMPRESSOR_PIN_TWO, LOW);
+        digitalWrite(COMPRESSOR_PIN_TWO, HIGH);
       break;
     case CLAPAN:
         digitalWrite(CLAPAN_PIN, LOW);
@@ -282,7 +329,7 @@ void getK()
     k = 1;
   }
   int soilVal = analogRead(SOIL_PIN);
-  Serial.println(soilVal);
+  //Serial.println(soilVal);
   if(soilVal<=200)
   {
     k=k+2;
@@ -293,12 +340,28 @@ void getK()
   }
   
 //  k = k*((1168-0,8*soilVal)/640);
-//  if (k != tmp)
+  if (k != tmp)
   {
     Serial.print("k = ");
     Serial.println(k);
   }
 }
+
+void getTemperature()
+{
+ // call sensors.requestTemperatures() to issue a global temperature
+  // request to all devices on the bus
+ // Serial.println(" Requesting temperatures...");
+  sensors.requestTemperatures(); // Send the command to get temperatures
+  //Serial.println("DONE");
+
+  // You can have more than one IC on the same bus. 
+  // 0 refers to the first IC on the wire
+  float temperature1=sensors.getTempCByIndex(0);
+ // Serial.println("Temperature for Device 1 is: "+String(temperature1));
+  virtuino.vMemoryWrite(0,temperature1);    // write temperature 1 to virtual pin V0. On Virtuino panel add a value display or an analog instrument to pin V0
+}
+
 
 void printTime(DateTime now)
 {
