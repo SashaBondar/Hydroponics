@@ -1,4 +1,3 @@
-
 /* Virtuino ESP8266 web server example No1  
  * Example name = "Enable or disable pin 13 LED"
  * Created by Ilias Lamprou
@@ -41,12 +40,19 @@
 #include "VirtuinoEsp8266_WebServer.h"
 // Code to use SoftwareSerial
 #include <SoftwareSerial.h>
-#define SensorPin A3            //pH meter Analog output to Arduino Analog Input 2
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+#define sensorPh A2
+#define sensorTemp 8
+//pH meter Analog output to Arduino Analog Input 2
 #define Offset 0.00            //deviation compensate
-SoftwareSerial espSerial =  SoftwareSerial(2,3);      // arduino RX pin=2  arduino TX pin=3    connect the arduino RX pin to esp8266 module TX pin   -  connect the arduino TX pin to esp8266 module RX pin
+SoftwareSerial espSerial =  SoftwareSerial(9,10);      // arduino RX pin=9  arduino TX pin=10    
+                                                       // connect the arduino RX pin to esp8266 module TX pin   -  connect the arduino TX pin to esp8266 module RX pin
 VirtuinoEsp8266_WebServer virtuino(espSerial, 9600);   // Your esp8266 device's speed is probably at 115200. For this reason use the test code to change the baud rate to 9600
-                                                      // SoftwareSerial doesn't work at 115200 
-                                                      
+                                                       // SoftwareSerial doesn't work at 115200 
+OneWire ds(sensorTemp); 
+DallasTemperature sensors(&ds);
 // Code to use HardwareSerial
 // VirtuinoEsp8266_WebServer virtuino(Serial1);    // enable this line and disable all Software serial lines
                                                         // Open VirtuinoESP8266_WebServer.h file on the virtuino library folder
@@ -81,7 +87,7 @@ void setup()
   
   
 //------ enter your setup code below
-
+    sensors.begin();
    pinMode(13,OUTPUT);       
  
     
@@ -96,14 +102,15 @@ void setup()
 
 void loop(){
    virtuino.run();           //  necessary command to communicate with Virtuino android app
-   phVol = analogRead(SensorPin);
-   double voltage = (5 * phVol)/ 1024.0;
-   phVal = 3.5 * voltage + Offset;
-   Serial.print("Voltage:");
-   Serial.print(voltage, 3);
-   Serial.print(" - phVal:");
-   Serial.println(phVal,2);
-   delay(1000);
+//   phVol = analogRead(sensorPh);
+//   double voltage = (5 * phVol)/ 1024.0;
+//   phVal = 3.5 * voltage + Offset;
+//   Serial.print("Voltage:");
+//   Serial.print(voltage, 3);
+//   Serial.print(" - phVal:");
+//   Serial.println(phVal,2);
+   getTemperature();
+   virtuino.vDelay(1000);
     //------ enter your loop code below here
     //------ avoid to use delay() function in your code. Use the command virtuino.vDelay() instead of delay()
 
@@ -115,4 +122,19 @@ void loop(){
      //----- end of your code
  }
 
+void getTemperature()
+{
+ // call sensors.requestTemperatures() to issue a global temperature
+  // request to all devices on the bus
+  Serial.println(" Requesting temperatures...");
+  sensors.requestTemperatures(); // Send the command to get temperatures
+  Serial.println("DONE");
+
+  // You can have more than one IC on the same bus. 
+  // 0 refers to the first IC on the wire
+  float temperature1=sensors.getTempCByIndex(0);
+  Serial.println("Temperature for Device 1 is: "+String(temperature1));
+  virtuino.vMemoryWrite(0,temperature1);    // write temperature 1 to virtual pin V0. On Virtuino panel add a value display or an analog instrument to pin V0
+
+}
 
