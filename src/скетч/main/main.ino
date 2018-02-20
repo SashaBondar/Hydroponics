@@ -7,11 +7,11 @@
   - времени суток (1 днем, 3 ночью)
   - влажности воздуха и почвы ( значения определить )
 */
-#include <VirtuinoEsp8266_WebServer.h>
+#include "VirtuinoEsp8266_WebServer.h"
 #include <SoftwareSerial.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <Wire.h>
+//#include <Wire.h>
 #include <DS3231.h>
 
 #define WATER_LEVEL_PIN     2
@@ -41,42 +41,38 @@ SoftwareSerial espSerial =  SoftwareSerial(9,10);
  * For this reason use the test code to change the baud rate to 9600                                                       
  * SoftwareSerial doesn't work at 115200 
  */
-VirtuinoEsp8266_WebServer virtuino(espSerial, 9600);    
-                                                       
-OneWire ds(SENSOR_TEMP); 
+VirtuinoEsp8266_WebServer virtuino(espSerial, 9600);                                                      
+OneWire ds(SENSOR_TEMP);
 DallasTemperature sensors(&ds);
 
 enum STATE
 {
   COMPRESSOR_ONE=0,  // включен компрессор, вода накачивается в трубу  t=80
-  SUBMERSION_ONE=1,     // все выключено вода в верхней трубе             t=600
-  COMPRESSOR_TWO=2,      // включен клапан, вода стекает в нижнюю трубу    t=600
-  SUBMERSION_TWO=3, // все выключено вода в нижней трубе              t=600
-  CLAPAN=4,         // включен клапан 2, вода стекает в бак           t=600
-  PAUSE=5           // все выключено вода в баке                      t=k*3000
+  SUBMERSION_ONE=1,  // все выключено вода в верхней трубе             t=600
+  COMPRESSOR_TWO=2,  // включен клапан, вода стекает в нижнюю трубу    t=600
+  SUBMERSION_TWO=3,  // все выключено вода в нижней трубе              t=600
+  CLAPAN=4,          // включен клапан 2, вода стекает в бак           t=600
+  PAUSE=5            // все выключено вода в баке                      t=k*3000
 };
 
-static inline int timeFromState(enum STATE state)
+static inline uint16_t timeFromState(enum STATE state)
 {
-//  static const int times[] = { 7, 60, 7, 60, 180, 50 };
-  static const int times[] = { 80, 600, 80, 600, 1200, 3000 };
-
-    return times[state];
+  static const uint16_t times[] = { 80, 600, 80, 600, 1200, 3000 };
+  return times[state];
 }
 
 static inline STATE nextState(enum STATE state)
 {
   static const STATE states[] = { SUBMERSION_ONE, COMPRESSOR_TWO, SUBMERSION_TWO, CLAPAN, PAUSE, COMPRESSOR_ONE };
-
-    return states[state];
+  return states[state];
 }
 
-static inline char *stringFromState(enum STATE state)
-{
-    static const char *strings[] = { "Компрессор 1", "Затопление трубы 1", "Компрессор 2", "Затопление трубы 2", "Клапан", "Тайм-Аут"  };
-
-    return strings[state];
-}
+//static inline char *stringFromState(enum STATE state)
+//{
+//    static const char *strings[] = { "Компрессор 1", "Затопление трубы 1", "Компрессор 2", "Затопление трубы 2", "Клапан", "Тайм-Аут"  };
+//
+//    return strings[state];
+//}
 
 enum LED_STATE
 {
@@ -88,21 +84,17 @@ RTClib RTC;
 DS3231 Clock;
 
 // коэффициент расчета временных интервалов затоплений
-float k;
+byte k;
 // время следующего действия
 uint32_t nextActionTime;
-// напряжение соответствующее освещенности на датчике света
-int lum;
 STATE state;
 LED_STATE ledState;
 
-int phVol;
-float phVal;
+//int phVol;
+//float phVal;
 
 void setup () {
   virtuino.DEBUG=true;
-  k=1;
-  lum = 0;
   Serial.begin(9600);
   espSerial.begin(9600);
   /**
@@ -116,10 +108,11 @@ void setup () {
   /**
    * Enable this line to create a wifi local netrork using ESP8266 as access point
    */
-  virtuino.createLocalESP8266_wifiServer("ESP8266","1234",8000,2);
+  //virtuino.createLocalESP8266_wifiServer("ESP8266","1234",8000,2);
   virtuino.password="1234";
+  k=1;
   sensors.begin();
-  Wire.begin();
+//  Wire.begin();
   // pin setup
   pinMode(COMPRESSOR_PIN,OUTPUT);
   pinMode(CLAPAN_PIN,OUTPUT);
@@ -146,13 +139,13 @@ void setup () {
 //      Clock.setMinute(55);
 //      Clock.setDoW(1);
 //      Clock.setClockMode(false);
-  printTime(RTC.now());
-  Serial.println((long)timeFromState(COMPRESSOR_ONE));
-  Serial.print("Current unix time: ");
-  Serial.println(RTC.now().unixtime());
+//  printTime(RTC.now());
+//  Serial.println((long)timeFromState(COMPRESSOR_ONE));
+//  Serial.print("Current unix time: ");
+//  Serial.println(RTC.now().unixtime());
   Serial.print("Next action time - ");
   Serial.println(nextActionTime);
-  Serial.println(stringFromState(state));
+//  Serial.println(stringFromState(state));
 }
 
 void loop () {
@@ -162,7 +155,7 @@ void loop () {
   compressorClapanProcess(now);
   lightProcess(now);
   getTemperature();
-  virtuino.vDelay(1000);
+  virtuino.vDelay(10000);
 }
 
 /**
@@ -176,35 +169,17 @@ void lightProcess(DateTime now)
   byte hourEveningEnd = 22;
   switch(now.month())
   {
-    case 1:
+    case 1 ... 3:
       hourMorningStart = 5;  
       hourMorningEnd = 7;
       hourEveningStart = 17;
       hourEveningEnd = 21;
     break;
-    case 2:
-      hourMorningStart = 5;  
-      hourMorningEnd = 7;
-      hourEveningStart = 17;
-      hourEveningEnd = 22;
-    break;
-    case 3:
+    case 4 ... 5:
       hourMorningStart = 5;  
       hourMorningEnd = 7;
       hourEveningStart = 18;
       hourEveningEnd = 22;
-    break;
-    case 4:
-      hourMorningStart = 5;  
-      hourMorningEnd = 7;
-      hourEveningStart = 18;
-      hourEveningEnd = 22;
-    break;
-    case 5:
-      hourMorningStart = 5;  
-      hourMorningEnd = 6;
-      hourEveningStart = 19;
-      hourEveningEnd = 21;
     break;
     case 6:
       hourMorningStart = 5;  
@@ -212,40 +187,22 @@ void lightProcess(DateTime now)
       hourEveningStart = 20;
       hourEveningEnd = 21;
     break;
-    case 7:
+    case 7 ... 8:
       hourMorningStart = 5;  
       hourMorningEnd = 5;
       hourEveningStart = 21;
       hourEveningEnd = 21;
     break;
-    case 8:
-      hourMorningStart = 5;  
-      hourMorningEnd = 5;
-      hourEveningStart = 21;
-      hourEveningEnd = 21;
-    break;
-    case 9:
+    case 9 ... 10:
       hourMorningStart = 5;  
       hourMorningEnd = 6;
       hourEveningStart = 20;
       hourEveningEnd = 22;
     break;
-    case 10:
-      hourMorningStart = 5;  
-      hourMorningEnd = 6;
-      hourEveningStart = 20;
-      hourEveningEnd = 22;
-    break;
-    case 11:
+    case 11 ... 12:
       hourMorningStart = 5;  
       hourMorningEnd = 7;
       hourEveningStart = 18;
-      hourEveningEnd = 21;
-    break;
-    case 12:
-      hourMorningStart = 5;  
-      hourMorningEnd = 7;
-      hourEveningStart = 17;
       hourEveningEnd = 21;
     break;
   }
@@ -283,9 +240,9 @@ void compressorClapanProcess(DateTime now)
   uint32_t currTime = now.unixtime();
   if(currTime >= nextActionTime) 
   {
-    printTime(now);
+//    printTime(now);
     state = nextState(state);
-    Serial.println(stringFromState(state));
+//    Serial.println(stringFromState(state));
     nextActionTime = currTime + timeFromState(state);
     processState(state);
   }
@@ -318,8 +275,8 @@ void processState(STATE state)
 
 void getK()
 {
-  float tmp = k;
-  lum = analogRead(LIGHT_SENSOR_PIN);
+  byte tmp = k;
+  uint16_t lum = analogRead(LIGHT_SENSOR_PIN);
   if (lum <= MIN_LUM)
   {
     k = 3;
@@ -339,7 +296,6 @@ void getK()
     k=k+1;
   }
   
-//  k = k*((1168-0,8*soilVal)/640);
   if (k != tmp)
   {
     Serial.print("k = ");
@@ -363,20 +319,20 @@ void getTemperature()
 }
 
 
-void printTime(DateTime now)
-{
-  Serial.print(now.year(), DEC);
-  Serial.print('/');
-  Serial.print(now.month(), DEC);
-  Serial.print('/');
-  Serial.print(now.day(), DEC);
-  Serial.print(' ');
-  Serial.print(now.hour(), DEC);
-  Serial.print(':');
-  Serial.print(now.minute(), DEC);
-  Serial.print(':');
-  Serial.print(now.second(), DEC);
-  Serial.println();
+//void printTime(DateTime now)
+//{
+//  Serial.print(now.year(), DEC);
+//  Serial.print('/');
+//  Serial.print(now.month(), DEC);
+//  Serial.print('/');
+//  Serial.print(now.day(), DEC);
+//  Serial.print(' ');
+//  Serial.print(now.hour(), DEC);
+//  Serial.print(':');
+//  Serial.print(now.minute(), DEC);
+//  Serial.print(':');
+//  Serial.print(now.second(), DEC);
+//  Serial.println();
 //
 //  Serial.print(" since midnight 1/1/1970 = ");
 //  Serial.print(now.unixtime());
@@ -384,4 +340,4 @@ void printTime(DateTime now)
 //  Serial.print(now.unixtime() / 86400L);
 //  Serial.println("d");
   //Serial.println("Temp="+Clock.getTemperature());
-}
+//}
